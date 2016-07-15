@@ -1,0 +1,15 @@
+{
+    "user_agent": "",
+    "username": "",
+    "password": "",
+    "check_rate": 60,
+    "resubmit": false,
+    "feeds": [
+        {
+            "url": "https://www.google.com/alerts/feeds/09844433320831210961/3504146379976622958",
+            "subreddits": [
+                "Test"
+            ]
+        }
+    ]
+}
