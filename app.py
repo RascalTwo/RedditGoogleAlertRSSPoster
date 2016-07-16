@@ -26,6 +26,7 @@
 
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
+from unidecode import unidecode
 import threading
 import requests
 import sqlite3
@@ -34,6 +35,7 @@ import wsgiref.simple_server
 import praw
 import json
 import time
+import os
 
 
 class MLStripper(HTMLParser):
@@ -41,7 +43,7 @@ class MLStripper(HTMLParser):
 
     def __init__(self):
         """Initalize parser."""
-        super().__init__(convert_charrefs=False)
+        super().__init__()
         self.reset()
         self.fed = []
 
@@ -56,6 +58,7 @@ class MLStripper(HTMLParser):
     @staticmethod
     def strip_tags(html):
         """Strip HTML tags and entities from string."""
+        html = unidecode(html)
         stripper = MLStripper()
         stripper.feed(html)
         return stripper.get_data()
@@ -71,7 +74,7 @@ class GoogleAlertRSSPoster(object):
         with open("config.json", "r") as config_file:
             self.config = json.loads(config_file.read())
 
-        self.db = sqlite3.connect("database.db")
+        self.db = sqlite3.connect(data_dir + "database.db")
         cur = self.db.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS posts(
@@ -247,7 +250,7 @@ class GoogleAlertRSSPoster(object):
 
     def run(self):
         """Start the bot main loop."""
-        self.db = sqlite3.connect("database.db", check_same_thread=False)
+        self.db = sqlite3.connect(data_dir + "database.db", check_same_thread=False)
         while True:
             items = self._get_items()
             for item in items:
@@ -281,13 +284,14 @@ class GoogleAlertRSSPoster(object):
                     else:
                         item["permalinks"].append(post.permalink)
                     self._insert_db_item(item)
-                    print("Title:      {item[title]}\n"
-                          "URL:        {item[url]}\n"
-                          "Subreddit:  {0}\n"
-                          "Permalink:  {1}\n"
-                          .format(sub,
-                                  item["permalinks"][-1],
-                                  item=item))
+                    print("Post made to {}".format(sub))
+#                    print("Title:      {item[title]}\n"
+#                          "URL:        {item[url]}\n"
+#                          "Subreddit:  {0}\n"
+#                          "Permalink:  {1}\n"
+#                          .format(sub,
+#                                  item["permalinks"][-1],
+#                                  item=item))
                     self._insert_history(item)
             print("Waiting...\n")
             time.sleep(self.config["check_rate"])
@@ -325,7 +329,10 @@ def simple_app(environ, start_response):
             html = index.read()
 
         history = bot._query("SELECT * FROM history ORDER BY utc DESC LIMIT 0, 10 ")
-        html = html.replace("-={HISTORY}=-", json.dumps(bot.items_as(history, "dict")))
+        if history is None:
+            html = html.replace("-={HISTORY}=-", "[]")
+        else:
+            html = html.replace("-={HISTORY}=-", json.dumps(bot.items_as(history, "dict")))
 
         return [html.encode("utf-8")]
     elif "/api/history" in path:
@@ -338,11 +345,12 @@ def simple_app(environ, start_response):
 
 
 if __name__ == "__main__":
+    data_dir = os.environ["OPENSHIFT_DATA_DIR"] if "OPENSHIFT_DATA_DIR" in os.environ else ""
     bot = GoogleAlertRSSPoster()
     thread = threading.Thread(target=bot.run, name="Bot")
     thread.daemon = True
     thread.start()
-
-    httpd = wsgiref.simple_server.make_server('', 8000, simple_app)
-    print("Serving on port 8000...")
+    host = os.environ["OPENSHIFT_PYTHON_IP"] if "OPENSHIFT_PYTHON_IP" in os.environ else "localhost"
+    httpd = wsgiref.simple_server.make_server(host, 8080, simple_app)
+    print("Serving on port 8080...")
     httpd.serve_forever()

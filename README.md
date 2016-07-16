@@ -10,6 +10,8 @@ Submit link posts from Google Alert RSS feeds to target subreddits.
 
 - PRAW
 - Requests
+- Unidecode
+    - I got lazy when decoding the Unicode to work on Openshift
 
 Makes posts using the PRAW library while tracking posts made and history via a sqlite3 database.
 
@@ -86,6 +88,7 @@ Only 1000 entries are kept in the table.
 
 URL | Title | UTC | Permalink | Subreddit
 --- |  ---  | --- |     ---   |    ---
+http://example.com/ | Example thing | 1451606400 | http://reddit.com/Test/1234567/example-com/ | Test
 
 This is an log of the posting the bot has done.
 
