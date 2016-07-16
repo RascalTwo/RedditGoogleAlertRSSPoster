@@ -72,7 +72,7 @@ A feed consists of two properties:
 
 The bot has two databases, `posted` and `history`.
 
-### Posted
+### Posts
 
 URL | Title | UTC | Permalinks | Subreddits
 --- |  ---  | --- |     ---    |    ---
@@ -84,7 +84,7 @@ Only 1000 entries are kept in the table.
 
 ### History
 
-UTC | Title | URL | Permalink | Subreddit
+URL | Title | UTC | Permalink | Subreddit
 --- |  ---  | --- |     ---   |    ---
 
 This is an log of the posting the bot has done.
@@ -109,6 +109,20 @@ Only 1000 entries are kept in the table.
             - The database is updated.
     - The bot waits `check_rate` seconds, and does the above items again.
 
-# Possible additional features
+# Web-GUI
 
-Basic Web-GUI to view, sort, and filter the posted posts and the history tables.
+It's a simple GUI that shows the contents of the `posts` or `history` tables in list form.
+
+The `Toggle` button switches between Posts and History.
+
+The `Refresh` button does as it says, and refreshes the current content.
+
+The `Next` and `Previous` buttons - when available - show the next or previous ten entries in the current database.
+
+## Technical details
+
+The backend API is as such:
+
+`/api/table_name&range=0-10`
+
+where `table_name` is the name of the current table - `posts` or `history`, the first number in range is the number of the element to start from, and the second number is how many elements to fetch.

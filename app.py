@@ -26,8 +26,11 @@
 
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
+import threading
 import requests
 import sqlite3
+import wsgiref.util
+import wsgiref.simple_server
 import praw
 import json
 import time
@@ -71,7 +74,7 @@ class GoogleAlertRSSPoster(object):
         self.db = sqlite3.connect("database.db")
         cur = self.db.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS posted(
+            CREATE TABLE IF NOT EXISTS posts(
                 url         TEXT  NOT NULL  PRIMARY KEY,
                 title       TEXT  NOT NULL,
                 utc         INT   NOT NULL,
@@ -81,17 +84,17 @@ class GoogleAlertRSSPoster(object):
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS history(
-                utc         INT   NOT NULL  PRIMARY KEY,
-                url         TEXT  NOT NULL,
+                url         INT   NOT NULL,
                 title       TEXT  NOT NULL,
+                utc         TEXT  NOT NULL  PRIMARY KEY,
                 permalink   TEXT  NOT NULL,
                 subreddit   TEXT  NOT NULL
             )
         """)
         cur.execute("""
-            CREATE TRIGGER IF NOT EXISTS limit_1k AFTER INSERT ON posted
+            CREATE TRIGGER IF NOT EXISTS limit_1k AFTER INSERT ON posts
               BEGIN
-                DELETE FROM posted WHERE utc <= (SELECT utc FROM posted ORDER BY utc DESC LIMIT 1000, 1);
+                DELETE FROM posts WHERE utc <= (SELECT utc FROM posts ORDER BY utc DESC LIMIT 1000, 1);
               END;
         """)
         cur.execute("""
@@ -102,6 +105,7 @@ class GoogleAlertRSSPoster(object):
         """)
         cur.close()
         self.db.commit()
+        self.db.close()
 
         self.reddit = praw.Reddit(self.config["user_agent"])
         self.reddit.login(self.config["username"],
@@ -188,7 +192,7 @@ class GoogleAlertRSSPoster(object):
 
     def _from_database(self, url):
         """Get entry from database with matching url."""
-        result = self._query("SELECT * FROM posted "
+        result = self._query("SELECT * FROM posts "
                              "WHERE url = ?", (url,))
         if result is None:
             return None
@@ -217,7 +221,7 @@ class GoogleAlertRSSPoster(object):
 
     def _get_db_items(self, items):
         """Return rows for items."""
-        statement = ("SELECT * FROM posted WHERE url IN ({})"
+        statement = ("SELECT * FROM posts WHERE url IN ({})"
                      .format(", ".join(["?"] * len(items))))
         urls = [item["url"] for item in items]
         results = self._query(statement, urls)
@@ -227,7 +231,7 @@ class GoogleAlertRSSPoster(object):
 
     def _insert_db_item(self, item):
         """Insert item into database."""
-        self._execute("INSERT OR REPLACE INTO posted "
+        self._execute("INSERT OR REPLACE INTO posts "
                       "VALUES (?, ?, ?, ?, ?)",
                       self.items_as(item, "tuple"))
 
@@ -235,14 +239,15 @@ class GoogleAlertRSSPoster(object):
         """Insert history of item being inserted into database."""
         self._execute("INSERT INTO history "
                       "VALUES (?, ?, ?, ?, ?)",
-                      (int(time.time()),
-                       item["url"],
+                      (item["url"],
                        item["title"],
+                       int(time.time()),
                        item["permalinks"][-1],
                        item["subreddits"][-1]))
 
     def run(self):
         """Start the bot main loop."""
+        self.db = sqlite3.connect("database.db", check_same_thread=False)
         while True:
             items = self._get_items()
             for item in items:
@@ -287,6 +292,57 @@ class GoogleAlertRSSPoster(object):
             print("Waiting...\n")
             time.sleep(self.config["check_rate"])
 
+def strip_args(path):
+    args = {}
+    for arg in [(arg.split("=")[0], arg.split("=")[1]) for arg in path.split("&")[1:]]:
+        args[arg[0]] = arg[1]
+    return args
+
+def table_data(path, start_response, table):
+    start_response('200 OK', [('Content-type', 'application/json')])
+    args = strip_args(path)
+    fetch_range = args["range"].split("-")
+    results = bot._query("SELECT * FROM " + table + " "
+                         "ORDER BY utc DESC LIMIT ?, ?",
+                         (fetch_range[0], fetch_range[1]))
+
+    if results is None:
+        return [json.dumps({"stop": True}).encode("utf-8")]
+    stop = bot._query("SELECT * FROM " + table + " "
+                      "ORDER BY utc DESC LIMIT ?, 1",
+                      (fetch_range[1],))
+    return [json.dumps({
+        "stop": True if stop is None else False,
+        "data": bot.items_as(results, "dict")
+    }).encode("utf-8")]
+
+def simple_app(environ, start_response):
+    path = environ["PATH_INFO"]
+    if path == "/":
+        start_response('200 OK', [('Content-type', 'text/html')])
+
+        with open("index.html", "r") as index:
+            html = index.read()
+
+        history = bot._query("SELECT * FROM history ORDER BY utc DESC LIMIT 0, 10 ")
+        html = html.replace("-={HISTORY}=-", json.dumps(bot.items_as(history, "dict")))
+
+        return [html.encode("utf-8")]
+    elif "/api/history" in path:
+        return table_data(path, start_response, "history")
+    elif "/api/posts" in path:
+        return table_data(path, start_response, "posts")
+    else:
+        start_response('404 NOT FOUND', [])
+        return ["".encode("utf-8")]
+
 
 if __name__ == "__main__":
-    GoogleAlertRSSPoster().run()
+    bot = GoogleAlertRSSPoster()
+    thread = threading.Thread(target=bot.run, name="Bot")
+    thread.daemon = True
+    thread.start()
+
+    httpd = wsgiref.simple_server.make_server('', 8000, simple_app)
+    print("Serving on port 8000...")
+    httpd.serve_forever()

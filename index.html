@@ -1,0 +1,123 @@
+<html>
+    <head>
+        <title>Reddit Google Alert RSS Poster</title>
+        <style>
+            ul {
+                list-style: none;
+                list-style-type: none;
+                white-space: nowrap;
+            }
+            li {
+                border: 1px solid black;
+                border-collapse: collapse;
+                padding: 5px 5px 5px 5px;
+                margin: 5px 5px 5px 5px;
+            }
+
+            .prev-button {
+                display: none;
+            }
+        </style>
+        <script src="https://code.jquery.com/jquery-3.1.0.min.js"></script>
+    </head>
+    <body>
+        <h1>History</h1>
+        <button id="toggle-view">Toggle</button>
+        <br>
+        Last Checked: <span id="last-checked"></span>
+        <br>
+        Current Range: <span id="range"></span>
+        <br>
+        <button class="prev-button">Prev</button>
+        <button class="refresh-button">Refresh</button>
+        <button class="next-button">Next</button>
+        <ul>
+        </ul>
+        <button class="prev-button">Prev</button>
+        <button class="refresh-button">Refresh</button>
+        <button class="next-button">Next</button>
+    </body>
+    <script type="text/javascript">
+        var view = "History"
+        var range = [0, 10];
+        var entries = -={HISTORY}=-;
+
+        function redrawEntries(){
+            $("#range").html((range[0] + 1) + " -> " + range[1])
+            $("#last-checked").html(new Date());
+            var list = $("ul")
+            list.html("");
+            for (var i = 0; i < entries.length; i++){
+                var date = new Date(0)
+                date.setMilliseconds(entries[i]["utc"] * 1000)
+                var html  = "";
+                html += "<li>";
+                html += "<a href='" + entries[i]["url"] + "'>" + entries[i]["title"] + "</a>";
+                html += "<p>" + date + "</p>";
+                if (Array.isArray(entries[i]["permalinks"])){
+                    for (var j = 0 ; j < entries[i]["permalinks"].length; j++){
+                        if (j !== 0){
+                            html += ", "
+                        }
+                        html += "<a href='" + entries[i]["permalinks"][j] + "'>" + entries[i]["subreddits"][j] + "</a>";
+                    }
+                }
+                else{
+                    html += "<a href='" + entries[i]["permalinks"] + "'>" + entries[i]["subreddits"] + "</a>";
+                }
+                html += "</li>";
+                list.append(html);
+            }
+        }
+
+        function fetchEntries(){
+            var url = "/api/" + view.toLowerCase() + "&range=" + range[0] + "-" + range[1]
+            $.get(url, function(response){
+                if (response.hasOwnProperty("data")){
+                    entries = response.data;
+                    redrawEntries();
+                }
+                if (range[0] === 0){
+                    $(".prev-button").hide();
+                }
+                else{
+                    $(".prev-button").show();
+                }
+                if (response.stop){
+                    $(".next-button").hide()
+                }
+                else{
+                    $(".next-button").show()
+                }
+            });
+        }
+
+        $(".refresh-button").click(function(){
+            fetchEntries();
+        });
+
+        $("#toggle-view").click(function(){
+            if (view === "History"){
+                view = "Posts";
+            }
+            else{
+                view = "History";
+            }
+            $("h1").html(view);
+            range = [0, 10];
+            fetchEntries();
+        });
+
+        $(".next-button").click(function(){
+            range = range.map(function(i){ return i + 10; });
+            fetchEntries();
+        });
+
+        $(".prev-button").click(function(){
+            range = range.map(function(i){ return i - 10; });
+            fetchEntries();
+        });
+
+        redrawEntries();
+    </script>
+</html>
